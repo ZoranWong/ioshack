@@ -9,8 +9,11 @@
 #include <assert.h>
 #include "mio.h"
 
+#define HELP "ps - show all proccess\nat pro_name - attach to one proccess\nsu - suspend the proccess\nre - resume the proccess\n"
+
 typedef struct kinfo_proc kinfo_proc;
 
+#define R_CODE_NONE -2
 #define R_CODE_EXIT -1
 #define R_CODE_INFO 0
 #define R_CODE_PS 1
@@ -18,6 +21,10 @@ typedef struct kinfo_proc kinfo_proc;
 #define R_CODE_SUS 3
 #define R_CODE_RES 4
 #define R_CODE_SSI 5
+#define R_CODE_CSI 6
+#define R_CODE_MOD 7
+
+#define MAX_ADDS 1000
 
 int getinput();
 static int GetBSDProcessList();
@@ -26,6 +33,7 @@ static kinfo_proc *gprocList=NULL;
 static size_t gprocCount;
 static kinfo_proc *gproc=NULL;
 static task_t gtask;
+static char *gadds[MAX_ADDS+1];
 
 int main(int argv,char *args[]){
 
@@ -35,7 +43,7 @@ int main(int argv,char *args[]){
 		if(r==R_CODE_EXIT)
 			break;
 		else if(r==R_CODE_INFO)
-			printf("This is help info\n");
+			printf("-help info:\n"HELP);
 		else if(r==R_CODE_PS||r==R_CODE_AT){
 			GetBSDProcessList();
 
@@ -77,10 +85,94 @@ int main(int argv,char *args[]){
 			}
 		}else if(r==R_CODE_SSI){
 			int num=-1;
-			if(MioGetArg2Num(0,&num)!=0){
+			if(MioGetArg2Num(1,&num)!=0){
 				printf("arg error");
 				continue;
 			}
+
+			printf("start search %d\n",num);
+			char *target_add=gproc->kp_proc.user_stack;
+			int index=0;
+			do{
+				int *buf;
+				uint32_t sz;
+				kern_return_t kr=vm_read(gtask,target_add,sizeof(int),&buf,&sz);
+				if(kr!=KERN_SUCCESS){
+					printf("error %d\n",kr);
+					break;
+				}
+
+				if((*buf)==num){
+					if(index<MAX_ADDS){
+						printf("find the var at %p=%d\n",target_add,target_add);
+						gadds[index]=target_add;
+						index++;
+					}else{
+						printf("gadds over flow\n");
+					}
+				}
+				target_add=target_add-sizeof(int);
+			}while(1);
+			printf("there are %d vars\n",index+1);
+			gadds[index+1]=-1;
+			//end of start search int
+		}else if(r==R_CODE_CSI){
+			int num=-1;
+			if(MioGetArg2Num(1,&num)!=0){
+				printf("arg error");
+				continue;
+			}
+			char *add=NULL;
+			int index=0;
+			while((add=gadds[index])!=-1){
+				int *buf;
+				uint32_t sz;
+				kern_return_t kr=vm_read(gtask,add,sizeof(int),&buf,&sz);
+				if(kr!=KERN_SUCCESS){
+					printf("error %d\n",kr);
+					break;
+				}
+
+				if((*buf)==num){
+					printf("still find the var at %p\n",add);
+					int t=0;
+					char *tadd=NULL;
+					while(1){
+						tadd=gadds[t];
+						if(tadd=-1){
+							gadds[t]=add;
+							break;
+						}else{
+							continue;
+						}
+					}	
+					index++;
+				}else{
+					gadds[index]=-1;
+					index++;
+				}
+			}
+			printf("there are still %d vars\n",index+1);
+			gadds[index+1]=-1;
+		}else if(r==R_CODE_MOD){
+			char *add=-1;
+			if(MioGetArg2Num(1,&add)!=0){
+				printf("address arg error");
+				continue;
+			}
+			int num=-1;
+			if(MioGetArg2Num(2,&num)!=0){
+				printf("change to arg error");
+				continue;
+			}
+			printf("mod %p to %d\n",add,num);
+			kern_return_t kr=vm_write(gtask,add,(vm_offset_t)&num,sizeof(int));
+			if(kr==KERN_SUCCESS){
+				printf("OK!\n");
+			}else{
+				printf("vm_write fail %d\n",kr);
+			}
+		}
 
 	}
 	return 0;
@@ -94,7 +186,7 @@ int getinput(){
 
 	int r=MioGetArgCount();
 	if(r==0)
-		return -1;
+		return R_CODE_NONE;
 	char *cmd=MioGetArgByIndex(0);
 
 	if(r==1&&strcmp(cmd,"q")==0){
@@ -109,6 +201,10 @@ int getinput(){
 		re_code=R_CODE_RES;
 	}else if(gproc!=NULL&&r==2&&strcmp(cmd,"ssi")==0){
 		re_code=R_CODE_SSI;
+	}else if(gproc!=NULL&&r==2&&strcmp(cmd,"csi")==0){
+		re_code=R_CODE_CSI;
+	}else if(gproc!=NULL&&r==3&&strcmp(cmd,"mod")==0){
+		re_code=R_CODE_MOD;
 	}
 
 	return re_code;
