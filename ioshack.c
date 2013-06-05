@@ -90,8 +90,8 @@ int main(int argv,char *args[]){
 				continue;
 			}
 
-			printf("start search %d\n",num);
 			char *target_add=gproc->kp_proc.user_stack;
+			printf("start search %d at %p=%lu\n",num,target_add,target_add);
 			int index=0;
 			do{
 				int *buf;
@@ -156,7 +156,7 @@ int main(int argv,char *args[]){
 			gadds[index+1]=-1;
 		}else if(r==R_CODE_MOD){
 			char *add=-1;
-			if(MioGetArg2Num(1,&add)!=0){
+			if(MioGetArg2Long(1,&add)!=0){
 				printf("address arg error");
 				continue;
 			}

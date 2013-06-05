@@ -23,4 +23,6 @@ char* MioGetArgByIndex(int index);
  */
 int MioGetArg2Num(int index, int *num);
 
+int MioGetArg2Long(int index, long *num);
+
 #endif

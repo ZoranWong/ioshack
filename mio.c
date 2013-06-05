@@ -140,3 +140,29 @@ int MioGetArg2Num(int index, int *num)
 
 	return 0;
 }
+
+int MioGetArg2Long(int index, long *num)
+{
+	char *p;
+
+	if ( index>=mio_argc )
+	{
+		return 1;
+	}
+	
+	p = mio_arg[index];
+
+	while( *p!='\0' )
+	{
+		if ( ( *p<'0' || *p>'9' ) && *p!='-'  && *p!='+'  && *p!='.' )
+		{
+			return 2;
+		}
+		p++;
+	}
+
+	*num = atol(mio_arg[index]);
+
+	return 0;
+}
+
