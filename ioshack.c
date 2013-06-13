@@ -104,7 +104,7 @@ int main(int argv,char *args[]){
 
 				if((*buf)==num){
 					if(index<MAX_ADDS){
-						printf("find the var at %p=%d\n",target_add,target_add);
+						printf("find the var at %p=%lu\n",target_add,target_add);
 						gadds[index]=target_add;
 						index++;
 					}else{
@@ -113,7 +113,7 @@ int main(int argv,char *args[]){
 				}
 				target_add=target_add-sizeof(int);
 			}while(1);
-			printf("there are %d vars\n",index+1);
+			printf("there are %d vars\n",index);
 			gadds[index+1]=-1;
 			//end of start search int
 		}else if(r==R_CODE_CSI){
