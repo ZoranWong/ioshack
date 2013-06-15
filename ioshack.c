@@ -12,6 +12,10 @@
 #define HELP "ps - show all proccess\nat pro_name - attach to one proccess\nsu - suspend the proccess\nre - resume the proccess\n"
 
 typedef struct kinfo_proc kinfo_proc;
+typedef struct space{
+	vm_address_t address;
+	vm_size_t size;
+}space;
 
 #define R_CODE_NONE -2
 #define R_CODE_EXIT -1
@@ -25,15 +29,19 @@ typedef struct kinfo_proc kinfo_proc;
 #define R_CODE_MOD 7
 
 #define MAX_ADDS 1000
+#define MAX_SPACE_COUNT 100
 
 int getinput();
 static int GetBSDProcessList();
+void findmemoryspace();
 
 static kinfo_proc *gprocList=NULL;
 static size_t gprocCount;
 static kinfo_proc *gproc=NULL;
-static task_t gtask;
+task_t gtask;
 static char *gadds[MAX_ADDS+1];
+static space *gspaces=NULL;
+static int gspace_count=0;
 
 int main(int argv,char *args[]){
 
@@ -90,31 +98,37 @@ int main(int argv,char *args[]){
 				continue;
 			}
 
-			char *target_add=gproc->kp_proc.user_stack;
-			printf("start search %d at %p=%lu\n",num,target_add,target_add);
-			int index=0;
-			do{
-				int *buf;
-				uint32_t sz;
-				kern_return_t kr=vm_read(gtask,target_add,sizeof(int),&buf,&sz);
-				if(kr!=KERN_SUCCESS){
-					printf("error %d\n",kr);
-					break;
-				}
+			findmemoryspace();
 
-				if((*buf)==num){
-					if(index<MAX_ADDS){
-						printf("find the var at %p=%lu\n",target_add,target_add);
-						gadds[index]=target_add;
-						index++;
-					}else{
-						printf("gadds over flow\n");
+			int i=0;
+			int index=0;
+			for(i=0;i<gspace_count;i++){
+				space *target_space=gspaces+i;
+				vm_address_t target_add=target_space->address;
+				vm_address_t end_add=target_space->address+target_space->size;
+				printf("start search %d from %p to %p of %dK space.\n",num,target_add,end_add,target_space->size/1024);
+				do{
+					int *buf;
+					uint32_t sz;
+					kern_return_t kr=vm_read(gtask,target_add,sizeof(int),&buf,&sz);
+					if(kr!=KERN_SUCCESS){
+						printf("error %d\n",kr);
 					}
-				}
-				target_add=target_add-sizeof(int);
-			}while(1);
-			printf("there are %d vars\n",index);
-			gadds[index+1]=-1;
+
+					if((*buf)==num){
+						if(index<MAX_ADDS){
+							printf("find the var at %p=%lu\n",target_add,target_add);
+							gadds[index]=target_add;
+							index++;
+						}else{
+							printf("gadds over flow\n");
+						}
+					}
+					target_add=target_add+sizeof(int);
+				}while(target_add<end_add);
+				printf("there are %d vars\n",index);
+				gadds[index]=0;
+			}
 			//end of start search int
 		}else if(r==R_CODE_CSI){
 			int num=-1;
@@ -124,7 +138,7 @@ int main(int argv,char *args[]){
 			}
 			char *add=NULL;
 			int index=0;
-			while((add=gadds[index])!=-1){
+			while((add=gadds[index])!=0){
 				int *buf;
 				uint32_t sz;
 				kern_return_t kr=vm_read(gtask,add,sizeof(int),&buf,&sz);
@@ -134,7 +148,7 @@ int main(int argv,char *args[]){
 				}
 
 				if((*buf)==num){
-					printf("still find the var at %p\n",add);
+					printf("still find the var at %p=%lu\n",add,add);
 					int t=0;
 					char *tadd=NULL;
 					while(1){
@@ -148,12 +162,11 @@ int main(int argv,char *args[]){
 					}	
 					index++;
 				}else{
-					gadds[index]=-1;
+					gadds[index]=0;
 					index++;
 				}
 			}
-			printf("there are still %d vars\n",index+1);
-			gadds[index+1]=-1;
+			gadds[index]=0;
 		}else if(r==R_CODE_MOD){
 			char *add=-1;
 			if(MioGetArg2Long(1,&add)!=0){
@@ -178,9 +191,53 @@ int main(int argv,char *args[]){
 	return 0;
 }
 
+void findmemoryspace(){
+	if(gspaces!=NULL)
+		free(gspaces);
+
+	gspaces=(space*)malloc(sizeof(space)*MAX_SPACE_COUNT);
+	gspace_count=0;
+
+	kern_return_t kr;
+	vm_size_t vmsize=0,presize;
+	vm_address_t address=0,preaddress;
+	vm_region_extended_info_data_t info;
+	mach_msg_type_number_t info_count;
+	memory_object_name_t object;
+
+	preaddress=address;
+	presize=vmsize;
+
+	do{
+		address=preaddress+presize;
+		info_count = VM_REGION_EXTENDED_INFO_COUNT;
+		kr = mach_vm_region(gtask, &address, &vmsize, VM_REGION_EXTENDED_INFO, &info,&info_count, &object);
+		if(kr!=KERN_SUCCESS){
+			kr=task_for_pid(current_task(),gproc->kp_proc.p_pid,&gtask);
+			kr=mach_vm_region(gtask,&address,&vmsize,VM_REGION_EXTENDED_INFO,&info,&info_count,&object);
+		}
+
+		if(address!=preaddress){
+			if(info.share_mode==SM_PRIVATE||info.share_mode==SM_COW){
+				space *space=(gspaces+gspace_count);
+				space->address=address;
+				space->size=vmsize;
+				gspace_count++;
+				printf("space %p-%p\n",address,address+vmsize);
+			}
+
+			preaddress=address;
+			presize=vmsize;
+		}else{
+			presize+=vmsize;
+		}
+	}while(kr==KERN_SUCCESS);
+	printf("find %d validate memory spaces.\n",gspace_count);
+}
+
 int getinput(){
 	int re_code=0;
-	
+
 	printf(">");
 	MioGetArg();
 
