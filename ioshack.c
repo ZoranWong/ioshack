@@ -5,7 +5,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <mach/mach.h>
-//#include  <mach/vm_map.h>
+#include <mach/vm_map.h>
 #include <assert.h>
 #include "mio.h"
 
@@ -63,14 +63,15 @@ int main(int argv,char *args[]){
 						pro->kp_proc.p_comm, pro->kp_proc.user_stack);
 				}else{
 					pid_t targetpid = pro->kp_proc.p_pid;
-					char *a1=MioGetArgByIndex(1);
-					if(strcmp(a1,pro->kp_proc.p_comm)==0){
+					int num=-1;
+					MioGetArg2Num(1,&num);
+					if(num==targetpid){
 						kern_return_t kr=task_for_pid(current_task(), targetpid, &gtask);
 						if(kr==KERN_SUCCESS){
-							printf("[attach proccess %s]\n",a1);
+							printf("[attach proccess %s %d]\n",pro->kp_proc.p_comm,num);
 							gproc=pro;
 						}else{
-							printf("task_for_pid fail %d\n",kr);
+							printf("task_for_pid fail %d pid:%d\n",kr,num);
 							gproc=NULL;
 						}
 						break;
